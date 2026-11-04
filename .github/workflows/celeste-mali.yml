@@ -1,0 +1,64 @@
+name: Celeste Mali ARM64 Build
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'nxnative/**'
+      - '.github/workflows/celeste-mali.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y glslc
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK r27c
+        run: |
+          sdkmanager "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: Configure shader compiler
+        run: |
+          mkdir -p "$ANDROID_NDK_HOME/shader-tools/linux-x86_64"
+          ln -sf "$(command -v glslc)" \
+            "$ANDROID_NDK_HOME/shader-tools/linux-x86_64/glslc"
+
+      - name: Build Celeste native library
+        run: |
+          python3 nxnative/dm/android/build.py \
+            --game 01002B30028F6000 \
+            --ndk "$ANDROID_NDK_HOME" \
+            --out "$GITHUB_WORKSPACE/out/celeste" \
+            --api 31 \
+            --jobs 2 \
+            --lib \
+            --release \
+            --gfx vk
+
+      - name: Verify ARM64 library
+        run: |
+          test -s out/celeste/libdmhost.so
+          file out/celeste/libdmhost.so
+          readelf -h out/celeste/libdmhost.so
+
+      - name: Upload library
+        uses: actions/upload-artifact@v4
+        with:
+          name: celeste-mali-arm64
+          path: out/celeste/libdmhost.so
+          retention-days: 7
