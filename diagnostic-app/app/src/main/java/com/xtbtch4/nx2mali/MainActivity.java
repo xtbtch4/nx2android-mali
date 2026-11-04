@@ -28,9 +28,9 @@ public class MainActivity extends Activity {
         TextView hint = new TextView(this);
         hint.setText("Run tests separately. The zero-copy test may take longer and use substantial memory.");
         hint.setTextColor(0xffc5ccd8); root.addView(hint);
-        addButton(root, "1. Vulkan / BCn / ASTC", () -> show("VULKAN PROBE\n\n" + runVk()));
-        addButton(root, "2. ARM64 CPU", () -> show("CPU PROBE\n\n" + runCpu()));
-        addButton(root, "3. GPU zero-copy (advanced)", () -> show("ZERO-COPY PROBE\n\n" + runZeroCopy()));
+        addButton(root, "1. Vulkan / BCn / ASTC", v -> show("VULKAN PROBE\n\n" + runVk()));
+        addButton(root, "2. ARM64 CPU", v -> show("CPU PROBE\n\n" + runCpu()));
+        addButton(root, "3. GPU zero-copy (advanced)", v -> show("ZERO-COPY PROBE\n\n" + runZeroCopy()));
         ScrollView scroll = new ScrollView(this);
         output = new TextView(this);
         output.setTextColor(0xffe6edf3); output.setTextSize(12);
