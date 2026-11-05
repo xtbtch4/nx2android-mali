@@ -1,10 +1,11 @@
-name: Celeste Mali Runtime APK
+name: Celeste Android game build
 
 on:
   workflow_dispatch:
   push:
     paths:
       - 'nxnative/**'
+      - 'porter/**'
       - '.github/workflows/celeste-apk.yml'
 
 permissions:
@@ -13,60 +14,90 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 360
     steps:
+      - name: Show runner disk space
+        run: |
+          df -h
+          df -i
+
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Download the uploaded Celeste files
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y glslc
+          mkdir -p game
+          gh release download celeste-data-v1 --repo "${GITHUB_REPOSITORY}" --dir game
+          ls -lh game
+          test -s game/celeste-base.nsz
+          test -s game/celeste-update.nsz
+          test -s game/prod.keys
+          test -s game/title.keys
 
-      - name: Locate Android SDK
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install Python dependencies
         run: |
-          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          test -x "$SDK/cmdline-tools/latest/bin/sdkmanager"
-          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Set up Android SDK and NDK r27c
+        uses: android-actions/setup-android@v3
 
       - name: Install NDK r27c
         run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;27.2.12479018"
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager --install "ndk;27.2.12479018"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
 
-      - name: Configure shader compiler
+      - name: Check porting toolchain
         run: |
-          mkdir -p "$ANDROID_NDK_HOME/shader-tools/linux-x86_64"
-          ln -sf "$(command -v glslc)" "$ANDROID_NDK_HOME/shader-tools/linux-x86_64/glslc"
+          python -m porter doctor -k game/prod.keys
+          python -m porter inspect game -k game/prod.keys
 
-      - name: Build Celeste native library
+      - name: Port Celeste and build APK plus data pack
         run: |
-          python3 nxnative/dm/android/build.py \
-            --game 01002B30028F6000 \
-            --ndk "$ANDROID_NDK_HOME" \
-            --out "$GITHUB_WORKSPACE/out/celeste" \
-            --api 31 --jobs 2 --lib --release --gfx vk
+          mkdir -p out
+          python -m porter port game -k game/prod.keys -o out --jobs 2 --progress lines
 
-      - name: Package runtime APK
+      - name: Verify APK and data pack
         run: |
-          python3 nxnative/dm/android/apk/mkapk.py \
-            out/celeste/libdmhost.so \
-            out/apk/Celeste-Mali-runtime.apk \
-            --package org.nx2a.celeste \
-            --label "Celeste (Mali test)" \
-            --lib dmhost --landscape --release \
-            --version-code 1 --version-name "Mali-dev"
+          find out -maxdepth 2 -type f -printf '%p %s bytes\n' | head -200
+          APK="$(find out -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          DATA="$(find out -maxdepth 1 -type d -name '*-data' -print -quit)"
+          test -n "$APK"
+          test -s "$APK"
+          test -n "$DATA"
+          test -d "$DATA"
+          echo "APK=$APK" >> "$GITHUB_ENV"
+          echo "DATA=$DATA" >> "$GITHUB_ENV"
 
-      - name: Verify APK
+      - name: Archive game data pack
         run: |
-          test -s out/apk/Celeste-Mali-runtime.apk
-          file out/apk/Celeste-Mali-runtime.apk
+          cd out
+          DATA="$(find . -maxdepth 1 -type d -name '*-data' -print -quit)"
+          zip -qr "${DATA#./}.zip" "$DATA"
+          ls -lh *.apk *-data.zip
 
-      - name: Upload APK
+      - name: Upload playable build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: celeste-mali-runtime-apk
-          path: out/apk/Celeste-Mali-runtime.apk
+          name: celeste-android-apk-and-data
+          path: |
+            out/*.apk
+            out/*-data.zip
+          if-no-files-found: error
+          compression-level: 0
           retention-days: 7
