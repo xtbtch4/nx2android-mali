@@ -15,6 +15,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
     steps:
       - name: Show runner disk space
         run: |
@@ -52,15 +55,19 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Set up Android SDK and NDK r27c
-        uses: android-actions/setup-android@v3
-
-      - name: Install NDK r27c
+      # GitHub's hosted Ubuntu image already includes Android command-line tools.
+      # Do not use setup-android here: its legacy "tools" package request fails
+      # against current Google SDK repositories.
+      - name: Install Android SDK components and NDK r27c
         run: |
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager --install "ndk;27.2.12479018"
+          test -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ||             test -x "$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort | tail -1)"
+          echo "Using $SDKMANAGER"
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null || true
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --install             "platform-tools"             "platforms;android-35"             "build-tools;35.0.0"             "ndk;27.2.12479018"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
 
       - name: Check porting toolchain
         run: |
@@ -81,8 +88,6 @@ jobs:
           test -s "$APK"
           test -n "$DATA"
           test -d "$DATA"
-          echo "APK=$APK" >> "$GITHUB_ENV"
-          echo "DATA=$DATA" >> "$GITHUB_ENV"
 
       - name: Archive game data pack
         run: |
